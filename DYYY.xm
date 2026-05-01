@@ -9297,7 +9297,6 @@ static void DYYYSetupReadReceiptHooks() {
         if (url) {
             NSString *host = url.host;
             NSString *path = url.path;
-            NSString *urlStr = url.absoluteString;
             // 精确匹配抖音访客上报 API（仅匹配 aweme 相关域名 + 访客路径）
             BOOL isAwemeDomain = ([host containsString:@"aweme"] || 
                                   [host containsString:@"douyin"] || 
