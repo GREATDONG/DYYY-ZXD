@@ -1,0 +1,10 @@
+Package: com.huami.dyyy
+Name: DYYY
+Depends: mobilesubstrate, preferenceloader
+Version: 2.0.0
+Architecture: iphoneos-arm64
+Description: 抖音增强插件 - 模块化优化版
+Maintainer: huami
+Author: huami
+Section: Tweaks
+Icon: file:///Applications/DYYY.app/icon.png
