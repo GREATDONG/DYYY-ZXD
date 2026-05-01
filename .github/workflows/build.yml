@@ -42,15 +42,15 @@ jobs:
       - name: Build package (Standard)
         run: |
           rm -f packages/*
-          make package WITH_OPTIMIZATION=true FINALPACKAGE=1 -j$(sysctl -n hw.ncpu)
+          make package FINALPACKAGE=1 -j$(sysctl -n hw.ncpu)
 
       - name: Build Rootless variant
         run: |
-          make package SCHEME=rootless WITH_OPTIMIZATION=true FINALPACKAGE=1 -j$(sysctl -n hw.ncpu)
+          make package SCHEME=rootless FINALPACKAGE=1 -j$(sysctl -n hw.ncpu)
 
       - name: Build RootHide variant
         run: |
-          make package SCHEME=roothide WITH_OPTIMIZATION=true FINALPACKAGE=1 -j$(sysctl -n hw.ncpu)
+          make package SCHEME=roothide FINALPACKAGE=1 -j$(sysctl -n hw.ncpu)
 
       - name: List packages
         run: |
