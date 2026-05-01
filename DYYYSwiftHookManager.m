@@ -37,7 +37,6 @@
                replacement:(id)replacement
               featureName:(NSString *)featureName {
     
-    // 安全模式：暂时不执行任何 Hook，只是记录
     NSLog(@"[DYYY] SAFE MODE: Feature '%@' marked for hooking (disabled)", featureName);
     [self.disabledFeatures addObject:featureName];
     return NO;
