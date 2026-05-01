@@ -37,6 +37,7 @@ jobs:
             DYYYUI*
             DYYYManager*
             DYYYUtils*
+            DYYYCompat.h
             *.md
           sparse-checkout-cone-mode: false
 
