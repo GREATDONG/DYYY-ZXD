@@ -2,14 +2,8 @@
 //  DYYYSwiftHookManager.h
 //  DYYY
 //
-//  Swift Hook 安全模式管理器
-//  核心功能：优雅降级、零崩溃、功能监控
-//
 
 #import <Foundation/Foundation.h>
-#import <UIKit/UIKit.h>
-
-NS_ASSUME_NONNULL_BEGIN
 
 @interface DYYYSwiftHookManager : NSObject
 
@@ -24,12 +18,10 @@ NS_ASSUME_NONNULL_BEGIN
 
 - (void)disableFeature:(NSString *)featureName;
 
-- (NSSet<NSString *> *)disabledFeatures;
+- (NSSet *)disabledFeatures;
 
 - (void)reset;
 
 - (void)logStatus;
 
 @end
-
-NS_ASSUME_NONNULL_END
