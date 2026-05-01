@@ -1,9 +1,0 @@
-{
-    entry = {
-        bundle = DYYYPrefs;
-        required = YES;
-        label = "DYYY 设置";
-        icon = "icon.png";
-        isController = YES;
-    };
-}

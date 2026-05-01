@@ -8841,19 +8841,30 @@ static NSString *const kHideRecentUsersKey = @"DYYYHideSidebarRecentUsers";
         return;
     }
 
-    for (UIView *subview in self.subviews) {
-        if ([subview isMemberOfClass:[UIView class]]) {
-            UIColor *bgColor = subview.backgroundColor;
-            if (bgColor) {
-                CGFloat r, g, b, a;
-                if ([bgColor getRed:&r green:&g blue:&b alpha:&a]) {
-                    if (r == 0 && g == 0 && b == 0) {
+    // 扩展清理：递归清除所有近黑色背景的纯 UIView（v38.4.0 可能使用非纯黑/半透明色）
+    void (^clearDarkViews)(UIView *, BOOL) = ^(UIView *view, BOOL recursive) {
+        for (UIView *subview in view.subviews) {
+            if ([subview isMemberOfClass:[UIView class]]) {
+                UIColor *bgColor = subview.backgroundColor;
+                if (bgColor) {
+                    CGFloat r, g, b, a;
+                    if ([bgColor getRed:&r green:&g blue:&b alpha:&a]) {
+                        // 近黑色阈值：RGB 各通道 <= 0.1，任意 alpha
+                        if (r <= 0.1 && g <= 0.1 && b <= 0.1) {
+                            subview.backgroundColor = [UIColor clearColor];
+                        }
+                    } else {
+                        // 无法解析为 RGB（如 pattern/color space 不同），直接清除
                         subview.backgroundColor = [UIColor clearColor];
                     }
                 }
             }
+            if (recursive) {
+                clearDarkViews(subview, NO); // 只多深入一层，避免过度清理
+            }
         }
-    }
+    };
+    clearDarkViews(self, YES);
 }
 
 %end
