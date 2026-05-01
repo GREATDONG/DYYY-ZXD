@@ -1,0 +1,108 @@
+name: build deb
+
+on:
+  push:
+    branches-ignore:
+      - dev
+  pull_request:
+    branches-ignore:
+      - dev
+
+jobs:
+  build:
+    runs-on: macos-14
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+      THEOS_DEVICE_IP: 127.0.0.1
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4.2.2
+        with:
+          submodules: true
+
+      - name: Setup Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "15.0"
+
+      - name: Check cache key
+        run: |
+          echo upstream_heads=$(git ls-remote https://github.com/roothide/theos 2>/dev/null | head -n 1 | cut -f 1 || echo "default")-$(git ls-remote https://github.com/theos/sdks 2>/dev/null | head -n 1 | cut -f 1 || echo "default") >> $GITHUB_ENV
+
+      - name: Use cache
+        id: cache
+        uses: actions/cache@v4.2.1
+        with:
+          path: |
+            ${{ github.workspace }}/theos
+            ~/Library/Developer/Theos
+          key: ${{ runner.os }}-${{ env.upstream_heads }}-v2
+          restore-keys: |
+            ${{ runner.os }}-
+
+      - name: Prepare Theos
+        uses: huami1314/theos-action@main
+
+      - name: Install dependencies
+        run: |
+          echo "Installing dependencies..."
+          brew install make 2>/dev/null || true
+          echo "$(brew --prefix)/opt/make/libexec/gnubin" >> $GITHUB_PATH
+          make -v
+
+      - name: Build packages (all schemes)
+        run: |
+          echo "======================================"
+          echo "=== 开始构建 DYYY 插件 ==="
+          echo "======================================"
+          
+          rm -rf .theos packages
+          
+          echo ""
+          echo "--- 1/3 构建传统越狱版本 ---"
+          make package FINALPACKAGE=1 -j$(sysctl -n hw.ncpu)
+          
+          echo ""
+          echo "--- 2/3 构建 Rootless 版本 ---"
+          make package SCHEME=rootless FINALPACKAGE=1 -j$(sysctl -n hw.ncpu)
+          
+          echo ""
+          echo "--- 3/3 构建 RootHide 版本 ---"
+          make package SCHEME=roothide FINALPACKAGE=1 -j$(sysctl -n hw.ncpu)
+          
+          echo ""
+          echo "======================================"
+          echo "=== 构建完成 ==="
+          echo "======================================"
+          echo ""
+          echo "构建的文件:"
+          ls -lh packages/*.deb || true
+          
+          if [ -z "$(ls -A packages/*.deb 2>/dev/null)" ]; then
+            echo "❌ 错误: 没有构建出任何 .deb 文件!"
+            exit 1
+          fi
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4.6.0
+        with:
+          name: DYYY-Builds
+          path: |
+            packages/*.deb
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Build summary
+        run: |
+          echo "## DYYY 构建结果"
+          echo ""
+          echo "### 构建的包列表:"
+          if ls packages/*.deb 1>/dev/null 2>&1; then
+            for f in packages/*.deb; do
+              SIZE=$(ls -lh "$f" | awk '{print $5}')
+              echo "- $f ($SIZE)"
+            done
+          else
+            echo "没有构建出文件"
+          fi
