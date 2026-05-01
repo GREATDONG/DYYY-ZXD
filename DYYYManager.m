@@ -75,7 +75,7 @@
 }
 
 + (void)saveMedia:(NSURL *)mediaURL mediaType:(MediaType)mediaType completion:(void (^)(BOOL success))completion {
-    if (mediaType == MediaTypeAudio) {
+    if (!mediaURL || mediaType == MediaTypeAudio) {
         if (completion) {
             dispatch_async(dispatch_get_main_queue(), ^{
               completion(NO);
