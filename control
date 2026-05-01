@@ -1,10 +1,12 @@
 Package: com.huami.dyyy
 Name: DYYY
-Depends: mobilesubstrate, preferenceloader
-Version: 2.0.0
-Architecture: iphoneos-arm64
-Description: 抖音增强插件 - 模块化优化版
+Version: 2.3-1
+Description: 抖音优化版 v2.3 - Swift Hook安全模式/模块化架构/画质增强/评论管理/直播优化
+Homepage: https://github.com/huami1314/DYYY
+Section: Tweaks
+Depends: firmware (>= 5.0), mobilesubstrate
+Priority: optional
 Maintainer: huami
 Author: huami
-Section: Tweaks
-Icon: file:///Applications/DYYY.app/icon.png
+Architecture: iphoneos-arm
+Icon: https://Mieing.Github.io/repo/file/TikTok.png

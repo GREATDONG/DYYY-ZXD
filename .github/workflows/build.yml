@@ -1,9 +1,12 @@
-name: Build DYYY .deb
+name: build deb
 
 on:
   push:
-    branches: [ master, main ]
-  workflow_dispatch:
+    branches-ignore:
+      - dev
+  pull_request:
+    branches-ignore:
+      - dev
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -16,8 +19,7 @@ jobs:
       url: https://github.com/GREATDONG/DYYY-ZXD
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           sparse-checkout: |
             *.xm
@@ -38,96 +40,43 @@ jobs:
             *.md
           sparse-checkout-cone-mode: false
 
-      - name: Setup Xcode
-        uses: maxim-lobanov/setup-xcode@v1
+      - name: Check cache
+        run: |
+          echo upstream_heads=`git ls-remote https://github.com/roothide/theos | head -n 1 | cut -f 1`-`git ls-remote https://github.com/theos/sdks | head -n 1 | cut -f 1` >> $GITHUB_ENV
+
+      - name: Use cache
+        id: cache
+        uses: actions/cache@v4.2.1
         with:
-          xcode-version: '15.0'
+          path: ${{ github.workspace }}/theos
+          key: ${{ runner.os }}-${{ env.upstream_heads }}
 
-      - name: Install dependencies
+      - name: Prepare Theos
+        uses: huami1314/theos-action@main
+
+      - name: Setup GNU Make
         run: |
-          brew install ldid make
-          git clone --recursive https://github.com/theos/theos.git $HOME/theos
-          echo "THEOS=$HOME/theos" >> $GITHUB_ENV
+          echo "$(brew --prefix)/opt/make/libexec/gnubin" >> $GITHUB_PATH
 
-      - name: Download SDKs
+      - name: Build package (Standard)
         run: |
-          git clone https://github.com/theos/sdks.git $HOME/theos-sdks-temp
-          mv $HOME/theos-sdks-temp/iPhoneOS*.sdk $HOME/theos/sdks/ || true
-          rm -rf $HOME/theos-sdks-temp
-
-      - name: Create project structure
-        run: |
-          mkdir -p layout/DEBIAN
-          mkdir -p layout/Library/MobileSubstrate/DynamicLibraries
-          mkdir -p layout/var/mobile/Library/PreferenceBundles/DYYY.bundle
-          mkdir -p layout/var/mobile/Library/PreferenceLoader/Preferences/DYYY
-
-      - name: Create control file
-        run: |
-          cat > layout/DEBIAN/control << 'EOF'
-          Package: com.huami.dyyy
-          Name: DYYY
-          Depends: mobilesubstrate, preferenceloader
-          Version: 2.0.0
-          Architecture: iphoneos-arm64
-          Description: 抖音增强插件 - 模块化优化版 v2.0
-          Maintainer: huami
-          Author: huami
-          Section: Tweaks
-          EOF
-
-      - name: Create plist files
-        run: |
-          cat > layout/Library/MobileSubstrate/DynamicLibraries/DYYY.plist << 'EOF'
-          { Filter = { Bundles = ( "com.ss.iphone.ugc.Aweme" ); }; }
-          EOF
-
-          cat > layout/var/mobile/Library/PreferenceLoader/Preferences/DYYY.plist << 'EOF'
-          { entry = { bundle = DYYYPrefs; required = YES; label = "DYYY 设置"; }; }
-          EOF
-
-      - name: Build tweak
-        run: |
-          export THEOS=$HOME/theos
-          make clean || true
-          make package FINALPACKAGE=1 -j$(sysctl -n hw.ncpu) || true
+          rm -f packages/*
+          make package WITH_OPTIMIZATION=true FINALPACKAGE=1 -j$(sysctl -n hw.ncpu) || true
 
       - name: Build Rootless variant
         run: |
-          export THEOS=$HOME/theos
-          make package SCHEME=rootless FINALPACKAGE=1 -j$(sysctl -n hw.ncpu) || true
+          make package SCHEME=rootless WITH_OPTIMIZATION=true FINALPACKAGE=1 -j$(sysctl -n hw.ncpu) || true
 
       - name: Build RootHide variant
         run: |
-          export THEOS=$HOME/theos
-          make package SCHEME=roothide FINALPACKAGE=1 -j$(sysctl -n hw.ncpu) || true
+          make package SCHEME=roothide WITH_OPTIMIZATION=true FINALPACKAGE=1 -j$(sysctl -n hw.ncpu) || true
 
-      - name: Package .deb
+      - name: List packages
         run: |
-          ls -lh packages/*.deb 2>/dev/null || echo "检查构建结果"
-          if [ ! -f packages/*.deb ]; then
-            echo "注意: 完整构建需要 DYYY 源码文件"
-            echo "创建占位包..."
-            mkdir -p layout/Library/MobileSubstrate/DynamicLibraries
-            tar -czf DYYY_source_files.tar.gz *.xm *.h *.m Makefile* 2>/dev/null || true
-          fi
+          ls -la packages/
 
-      - name: Upload artifacts
+      - name: Upload packages
         uses: actions/upload-artifact@v4
         with:
-          name: DYYY-Builds-v2.0
-          path: |
-            packages/*.deb
-            *.tar.gz
-          retention-days: 30
-          if-no-files-found: warn
-
-      - name: Build summary
-        run: |
-          echo "## DYYY 构建完成"
-          echo ""
-          echo "### 输出文件:"
-          ls -lh packages/*.deb 2>/dev/null || echo "无 .deb 文件"
-          echo ""
-          echo "### 下载Artifacts:"
-          echo "访问 Actions 页面下载构建产物"
+          name: DYYY-packages
+          path: ${{ github.workspace }}/packages/*.deb
