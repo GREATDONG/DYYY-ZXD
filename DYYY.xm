@@ -8911,9 +8911,7 @@ static void findTargetViewInView(UIView *view) {
 // 功能1: 聊天消息左滑引用 / 右滑撤回
 // ============================================================
 
-%group DYYYIMSwipeActionsGroup
-
-// 辅助：从 cell 获取消息对象
+// 辅助函数（必须在 %group 外定义）
 static id DYYYGetMessageFromCell(id cell) {
     if (!cell) return nil;
     // 尝试通过 context 获取
@@ -9105,6 +9103,8 @@ static void DYYYRecallMessage(id cell, id message) {
 }
 
 // Hook 聊天 Cell 添加滑动手势
+%group DYYYIMSwipeActionsGroup
+
 %hook AWEIMReusableCommonCell
 
 - (void)didMoveToSuperview {
@@ -9173,12 +9173,9 @@ static void DYYYRecallMessage(id cell, id message) {
 // 功能2: 阻止已读回执上传
 // ============================================================
 
-%group DYYYBlockReadReceiptGroup
-
 // 使用运行时动态 swizzle 拦截已读回执
 // 因为不确定 AWEIMReadReceiptDataCenter 的确切方法签名，
 // 在 %ctor 中动态检测并 swizzle
-
 static IMP DYYYOrigReportReadReceipt = NULL;
 static IMP DYYYOrigAckRead = NULL;
 static IMP DYYYOrigSendReadReceipt = NULL;
@@ -9259,6 +9256,7 @@ static void DYYYSetupReadReceiptHooks() {
     }
 }
 
+%group DYYYBlockReadReceiptGroup
 %end // DYYYBlockReadReceiptGroup
 
 // ============================================================
