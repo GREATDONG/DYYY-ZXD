@@ -18,6 +18,9 @@
 #import "DYYYToast.h"
 #import "DYYYUtils.h"
 
+// Associated Object Keys（必须用静态变量地址）
+static char kDYYYSwipeGestureKey;
+
 // ============================================================
 // 功能1: 聊天消息左滑引用 / 右滑撤回
 // ============================================================
@@ -234,7 +237,7 @@ static void DYYYRecallMessage(id cell, id message) {
     // 避免重复添加手势
     for (UIGestureRecognizer *gesture in self.gestureRecognizers) {
         if ([gesture isKindOfClass:[UISwipeGestureRecognizer class]] &&
-            [(NSString *)objc_getAssociatedObject(gesture, @"DYYYSwipeGesture") hasPrefix:@"DYYY"]) {
+            [(NSString *)objc_getAssociatedObject(gesture, &kDYYYSwipeGestureKey) hasPrefix:@"DYYY"]) {
             return;
         }
     }
@@ -248,7 +251,7 @@ static void DYYYRecallMessage(id cell, id message) {
                                                initWithTarget:self
                                                action:@selector(dyyy_handleSwipeGesture:)];
         leftSwipe.direction = UISwipeGestureRecognizerDirectionLeft;
-        objc_setAssociatedObject(leftSwipe, @"DYYYSwipeGesture", @"DYYYLeftSwipe", OBJC_ASSOCIATION_RETAIN);
+        objc_setAssociatedObject(leftSwipe, &kDYYYSwipeGestureKey, @"DYYYLeftSwipe", OBJC_ASSOCIATION_RETAIN);
         [self addGestureRecognizer:leftSwipe];
     }
     
@@ -258,7 +261,7 @@ static void DYYYRecallMessage(id cell, id message) {
                                                 initWithTarget:self
                                                 action:@selector(dyyy_handleSwipeGesture:)];
         rightSwipe.direction = UISwipeGestureRecognizerDirectionRight;
-        objc_setAssociatedObject(rightSwipe, @"DYYYSwipeGesture", @"DYYYRightSwipe", OBJC_ASSOCIATION_RETAIN);
+        objc_setAssociatedObject(rightSwipe, &kDYYYSwipeGestureKey, @"DYYYRightSwipe", OBJC_ASSOCIATION_RETAIN);
         [self addGestureRecognizer:rightSwipe];
     }
 }
@@ -273,7 +276,7 @@ static void DYYYRecallMessage(id cell, id message) {
         return;
     }
     
-    NSString *gestureType = objc_getAssociatedObject(gesture, @"DYYYSwipeGesture");
+    NSString *gestureType = objc_getAssociatedObject(gesture, &kDYYYSwipeGestureKey);
     
     if ([gestureType isEqualToString:@"DYYYLeftSwipe"]) {
         // 左滑 → 引用
