@@ -24,7 +24,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 - (void)disableFeature:(NSString *)featureName;
 
-- (NSSet<NSString *> *)failedFeatures;
+- (NSSet<NSString *> *)disabledFeatures;
 
 - (void)reset;
 

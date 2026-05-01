@@ -39,7 +39,7 @@ TWEAK_NAME = DYYY
 DYYY_FILES = DYYY.xm DYYYFloatClearButton.xm DYYYFloatSpeedButton.m DYYYSettings.xm DYYYABTestHook.xm DYYYLongPressPanel.xm DYYYSettingsHelper.m DYYYImagePickerDelegate.m DYYYBackupPickerDelegate.m DYYYSettingViewController.m DYYYBottomAlertView.m DYYYCustomInputView.m DYYYOptionsSelectionView.m DYYYIconOptionsDialogView.m DYYYAboutDialogView.m DYYYKeywordListView.m DYYYFilterSettingsView.m DYYYConfirmCloseView.m DYYYToast.m DYYYManager.m DYYYUtils.m CityManager.m AWMSafeDispatchTimer.m
 
 # 优化模块（可选）
-DYYY_OPTIONAL_FILES = DYYYSwiftHookManager.m DYYYSwiftHooksSafe.m DYYYVideoHooks.xm DYYYCommentHooks.xm DYYLiveHooks.xm DYYYUIHooks.xm
+DYYY_OPTIONAL_FILES = DYYYSwiftHookManager.m DYYYSwiftHooksSafe.m
 
 # 如果启用优化模块
 ifeq ($(WITH_OPTIMIZATION),true)
