@@ -2807,6 +2807,31 @@ void showDYYYSettingsVC(UIViewController *rootVC, BOOL hasAgreed) {
               @"detail" : @"",
               @"cellType" : @20,
               @"imageName" : @"ic_squaresplit_outlined_20"
+          },
+          // IM 聊天增强功能
+          @{
+              "identifier" : "DYYYEnableSwipeActions",
+              "title" : "聊天滑动手势",
+              "subTitle" : "左滑引用，右滑撤回",
+              "detail" : "",
+              "cellType" : @37,
+              "imageName" : "ic_arrowleftarrowright_outlined_20"
+          },
+          @{
+              "identifier" : "DYYYBlockReadReceipt",
+              "title" : "阻止已读回执",
+              "subTitle" : "阻止发送已读回执",
+              "detail" : "",
+              "cellType" : @37,
+              "imageName" : "ic_checkcircle_outlined"
+          },
+          @{
+              "identifier" : "DYYYBlockVisitorUpload",
+              "title" : "阻止访客记录",
+              "subTitle" : "阻止上传访客记录",
+              "detail" : "",
+              "cellType" : @37,
+              "imageName" : "ic_eye_outlined_20"
           }
       ];
 
@@ -2900,6 +2925,75 @@ void showDYYYSettingsVC(UIViewController *rootVC, BOOL hasAgreed) {
                     strongItem.svgIconImageName = @"ic_sun_outlined";
                 }
                 [strongItem refreshCell];
+              };
+          }
+
+          // ====== IM 聊天增强功能设置 ======
+          if ([item.identifier isEqualToString:@"DYYYEnableSwipeActions"]) {
+              // 滑动手势设置 - 创建子页面
+              __weak AWESettingItemModel *weakItem = item;
+              item.cellTappedBlock = ^{
+                  __strong AWESettingItemModel *strongItem = weakItem;
+                  if (!strongItem || !strongItem.isEnable) return;
+
+                  NSMutableArray<AWESettingItemModel *> *swipeItems = [NSMutableArray array];
+
+                  // 左滑动作设置
+                  AWESettingItemModel *leftActionItem = [[%c(AWESettingItemModel) alloc] init];
+                  leftActionItem.identifier = @"DYYYSwipeLeftAction";
+                  leftActionItem.title = @"左滑动作";
+                  leftActionItem.type = 0;
+                  leftActionItem.svgIconImageName = @"ic_arrowleft_outlined";
+                  leftActionItem.cellType = 26;
+                  leftActionItem.colorStyle = 0;
+                  leftActionItem.isEnable = YES;
+                  NSString *savedLeftAction = [[NSUserDefaults standardUserDefaults] stringForKey:@"DYYYSwipeLeftAction"];
+                  leftActionItem.detail = [savedLeftAction isEqualToString:@"quote"] ? @"引用消息" : @"无";
+                  leftActionItem.cellTappedBlock = ^{
+                      NSArray *options = @[@"无", @"引用消息"];
+                      [DYYYOptionsSelectionView showWithPreferenceKey:@"DYYYSwipeLeftAction"
+                                                         optionsArray:options
+                                                           headerText:@"左滑动作"
+                                                       onPresentingVC:topView()
+                                                     selectionChanged:^(NSString *selectedValue) {
+                                                         NSString *value = [selectedValue isEqualToString:@"引用消息"] ? @"quote" : @"none";
+                                                         [[NSUserDefaults standardUserDefaults] setObject:value forKey:@"DYYYSwipeLeftAction"];
+                                                         leftActionItem.detail = selectedValue;
+                                                         [leftActionItem refreshCell];
+                                                     }];
+                  };
+                  [swipeItems addObject:leftActionItem];
+
+                  // 右滑动作设置
+                  AWESettingItemModel *rightActionItem = [[%c(AWESettingItemModel) alloc] init];
+                  rightActionItem.identifier = @"DYYYSwipeRightAction";
+                  rightActionItem.title = @"右滑动作";
+                  rightActionItem.type = 0;
+                  rightActionItem.svgIconImageName = @"ic_arrowright_outlined";
+                  rightActionItem.cellType = 26;
+                  rightActionItem.colorStyle = 0;
+                  rightActionItem.isEnable = YES;
+                  NSString *savedRightAction = [[NSUserDefaults standardUserDefaults] stringForKey:@"DYYYSwipeRightAction"];
+                  rightActionItem.detail = [savedRightAction isEqualToString:@"recall"] ? @"撤回消息" : @"无";
+                  rightActionItem.cellTappedBlock = ^{
+                      NSArray *options = @[@"无", @"撤回消息"];
+                      [DYYYOptionsSelectionView showWithPreferenceKey:@"DYYYSwipeRightAction"
+                                                         optionsArray:options
+                                                           headerText:@"右滑动作"
+                                                       onPresentingVC:topView()
+                                                     selectionChanged:^(NSString *selectedValue) {
+                                                         NSString *value = [selectedValue isEqualToString:@"撤回消息"] ? @"recall" : @"none";
+                                                         [[NSUserDefaults standardUserDefaults] setObject:value forKey:@"DYYYSwipeRightAction"];
+                                                         rightActionItem.detail = selectedValue;
+                                                         [rightActionItem refreshCell];
+                                                     }];
+                  };
+                  [swipeItems addObject:rightActionItem];
+
+                  NSMutableArray *sections = [NSMutableArray array];
+                  [sections addObject:[DYYYSettingsHelper createSectionWithTitle:@"聊天滑动手势" items:swipeItems]];
+                  AWESettingBaseViewController *subVC = [DYYYSettingsHelper createSubSettingsViewController:@"聊天增强设置" sections:sections];
+                  [rootVC.navigationController pushViewController:(UIViewController *)subVC animated:YES];
               };
           }
 
