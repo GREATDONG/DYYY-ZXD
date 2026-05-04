@@ -2810,28 +2810,28 @@ void showDYYYSettingsVC(UIViewController *rootVC, BOOL hasAgreed) {
           },
           // IM 聊天增强功能
           @{
-              "identifier" : "DYYYEnableSwipeActions",
-              "title" : "聊天滑动手势",
-              "subTitle" : "左滑引用，右滑撤回",
-              "detail" : "",
-              "cellType" : @37,
-              "imageName" : "ic_arrowleftarrowright_outlined_20"
+              @"identifier" : @"DYYYEnableSwipeActions",
+              @"title" : @"聊天滑动手势",
+              @"subTitle" : @"左滑引用，右滑撤回",
+              @"detail" : @"",
+              @"cellType" : @37,
+              @"imageName" : @"ic_arrowleftarrowright_outlined_20"
           },
           @{
-              "identifier" : "DYYYBlockReadReceipt",
-              "title" : "阻止已读回执",
-              "subTitle" : "阻止发送已读回执",
-              "detail" : "",
-              "cellType" : @37,
-              "imageName" : "ic_checkcircle_outlined"
+              @"identifier" : @"DYYYBlockReadReceipt",
+              @"title" : @"阻止已读回执",
+              @"subTitle" : @"阻止发送已读回执",
+              @"detail" : @"",
+              @"cellType" : @37,
+              @"imageName" : @"ic_checkcircle_outlined"
           },
           @{
-              "identifier" : "DYYYBlockVisitorUpload",
-              "title" : "阻止访客记录",
-              "subTitle" : "阻止上传访客记录",
-              "detail" : "",
-              "cellType" : @37,
-              "imageName" : "ic_eye_outlined_20"
+              @"identifier" : @"DYYYBlockVisitorUpload",
+              @"title" : @"阻止访客记录",
+              @"subTitle" : @"阻止上传访客记录",
+              @"detail" : @"",
+              @"cellType" : @37,
+              @"imageName" : @"ic_eye_outlined_20"
           }
       ];
 
