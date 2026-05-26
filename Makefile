@@ -1,11 +1,11 @@
-﻿#
+#
 #  DYYY
 #
 #  Copyright (c) 2024 huami. All rights reserved.
 #  Channel: @huamidev
 #  Created on: 2024/10/04
 #
-# 鏈湴閰嶇疆鏂囦欢锛堝彲閫夛級
+# 本地配置文件（可选）
 -include Makefile.local
 
 TARGET = iphone:clang:latest:14.0
@@ -14,7 +14,7 @@ ARCHS = arm64 arm64e
 #export THEOS=/Users/huami/theos
 #export THEOS_PACKAGE_SCHEME=roothide
 
-# 鏍规嵁鍙傛暟閫夋嫨鎵撳寘鏂规
+# 根据参数选择打包方案
 ifeq ($(SCHEME),roothide)
     export THEOS_PACKAGE_SCHEME = roothide
 else ifeq ($(SCHEME),rootless)
@@ -23,7 +23,8 @@ else
     unexport THEOS_PACKAGE_SCHEME
 endif
 
-# 鍦℅itHub Actions涓繍琛屾椂鐨勭壒娈婇厤缃?ifeq ($(GITHUB_ACTIONS),true)
+# 在GitHub Actions中运行时的特殊配置
+ifeq ($(GITHUB_ACTIONS),true)
     export INSTALL = 0
     export FINALPACKAGE = 1
 endif
@@ -56,17 +57,18 @@ else
 endif
 THEOS_DEVICE_PORT = 22
 
-# 娓呯悊 packages 鐩綍
+# 清理 packages 目录
 clean::
-	@echo -e "\033[31m==>\033[0m Cleaning packages鈥?
+	@echo -e "\033[31m==>\033[0m Cleaning packages…"
 	@rm -rf .theos packages
 
-# 缂栬瘧骞惰嚜鍔ㄥ畨瑁?after-package::
+# 编译并自动安装
+after-package::
 	@echo -e "\033[32m==>\033[0m Packaging complete."
 	@if [ "$(GITHUB_ACTIONS)" != "true" ] && [ "$(INSTALL)" = "1" ]; then \
         DEB_FILE=$$(ls -t packages/*.deb | head -1); \
         PACKAGE_NAME=$$(basename "$$DEB_FILE" | cut -d'_' -f1); \
-        echo -e "\033[34m==>\033[0m Installing $$PACKAGE_NAME to device鈥?; \
+        echo -e "\033[34m==>\033[0m Installing $$PACKAGE_NAME to device…"; \
         ssh root@$(THEOS_DEVICE_IP) "rm -rf /tmp/$${PACKAGE_NAME}.deb"; \
         scp "$$DEB_FILE" root@$(THEOS_DEVICE_IP):/tmp/$${PACKAGE_NAME}.deb; \
         ssh root@$(THEOS_DEVICE_IP) "dpkg -i --force-overwrite /tmp/$${PACKAGE_NAME}.deb && rm -f /tmp/$${PACKAGE_NAME}.deb"; \
