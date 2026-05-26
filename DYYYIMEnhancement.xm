@@ -1,226 +1,302 @@
 //
-//  DYYYIMEnhancement.xm  (修复版 v3)
+//  DYYYIMEnhancement.xm  (修复版 v5)
 //  DYYY IM 聊天增强功能
 //
-//  修复内容：
-//  1. %ctor 无条件初始化所有 group（修复条件判断导致的问题）
-//  2. 使用 UITableView 替代 AWEIMReusableCommonCell（修复类名错误）
-//  3. 使用 NSNotificationCenter 替代直接调用方法（避免方法不存在崩溃）
-//  4. 添加 @"" 前缀到所有 ObjC 字符串字面量
-//  5. 添加完整的 read receipt 和 visitor upload 拦截逻辑
+//  实现方式：通过 Hook AWEIMCustomMenuComponent 在聊天长按菜单中注入功能
+//  与现有表情下载功能使用完全相同的架构
 //
 
 #import <UIKit/UIKit.h>
 #import <objc/runtime.h>
-#import <substrate.h>
 #import "DYYYManager.h"
 #import "DYYYToast.h"
 #import "DYYYUtils.h"
 
-// Associated Object Keys
-static char kDYYYSwipeGestureKey;
-static char kDYYYMessageCellKey;
-
 // ============================================================
-// 辅助函数：查找 IM 聊天视图控制器
+// 辅助函数：安全获取消息字符串属性
 // ============================================================
-static UIViewController *DYYYFindIMChatViewController(UIView *view) {
-    UIResponder *responder = view;
-    while (responder) {
-        if ([responder isKindOfClass:[UIViewController class]]) {
-            UIViewController *vc = (UIViewController *)responder;
-            // 检查是否是聊天页面控制器
-            if ([NSStringFromClass([vc class]) containsString:@"IM"] ||
-                [NSStringFromClass([vc class]) containsString:@"Chat"]) {
-                return vc;
-            }
-        }
-        responder = [responder nextResponder];
-    }
+static NSString *DYYYIMMsgStringValue(id object, NSString *selectorName) {
+    if (!object || selectorName.length == 0) return nil;
+    SEL selector = NSSelectorFromString(selectorName);
+    if (!selector || ![object respondsToSelector:selector]) return nil;
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
+    id value = [object performSelector:selector];
+#pragma clang diagnostic pop
+    if ([value isKindOfClass:[NSString class]] && [value length] > 0) return value;
     return nil;
 }
 
 // ============================================================
-// 辅助函数：从 Cell 获取消息对象
+// 功能1: 聊天菜单注入 - 引用消息
 // ============================================================
-static id DYYYGetMessageFromCell(id cell) {
+static AWEIMCustomMenuModel *DYYYIMCreateQuoteMenuItem(id cell) {
     if (!cell) return nil;
     
-    // 尝试获取 message
-    SEL msgSel = NSSelectorFromString(@"message");
-    if ([cell respondsToSelector:msgSel]) {
-        return ((id (*)(id, SEL))objc_msgSend)(cell, msgSel);
-    }
+    __weak id weakCell = cell;
+    AWEIMCustomMenuModel *menuItem = [%c(AWEIMCustomMenuModel) new];
+    menuItem.title = @"引用消息";
+    menuItem.imageName = @"im_chat_quote";
+    menuItem.trackerName = @"引用消息";
+    menuItem.willPerformMenuActionSelectorBlock = ^(id arg1) {
+        id strongCell = weakCell;
+        if (!strongCell) {
+            [DYYYUtils showToast:@"无法获取消息"];
+            return;
+        }
+        
+        // 获取消息上下文
+        AWEIMMessageComponentContext *context = (AWEIMMessageComponentContext *)[strongCell valueForKey:@"currentContext"];
+        if (!context) {
+            [DYYYUtils showToast:@"无法获取消息上下文"];
+            return;
+        }
+        
+        id message = [context valueForKey:@"message"];
+        if (!message) {
+            [DYYYUtils showToast:@"无法获取消息对象"];
+            return;
+        }
+        
+        // 尝试获取消息文本内容
+        NSString *textContent = DYYYIMMsgStringValue(message, @"textContent");
+        if (textContent.length == 0) {
+            textContent = DYYYIMMsgStringValue(message, @"text");
+        }
+        if (textContent.length == 0) {
+            textContent = DYYYIMMsgStringValue(message, @"content");
+        }
+        
+        if (textContent.length > 0) {
+            // 将引用内容复制到剪贴板
+            [[UIPasteboard generalPasteboard] setString:textContent];
+            [DYYYUtils showToast:@"已复制消息内容（引用）"];
+            NSLog(@"[DYYY-IM] 引用消息: %@", textContent);
+        } else {
+            // 非文本消息，获取消息ID用于引用
+            NSString *msgId = DYYYIMMsgStringValue(message, @"messageId");
+            if (msgId.length == 0) {
+                msgId = DYYYIMMsgStringValue(message, @"msgId");
+            }
+            if (msgId.length > 0) {
+                NSLog(@"[DYYY-IM] 引用非文本消息 ID: %@", msgId);
+                [DYYYUtils showToast:@"已标记消息（非文本）"];
+            } else {
+                [DYYYUtils showToast:@"无法引用此消息"];
+            }
+        }
+    };
+    return menuItem;
+}
+
+// ============================================================
+// 功能2: 聊天菜单注入 - 撤回消息
+// ============================================================
+static AWEIMCustomMenuModel *DYYYIMCreateRecallMenuItem(id cell) {
+    if (!cell) return nil;
     
-    // 尝试获取 model
-    SEL modelSel = NSSelectorFromString(@"model");
-    if ([cell respondsToSelector:modelSel]) {
-        id model = ((id (*)(id, SEL))objc_msgSend)(cell, modelSel);
-        if (model && [model respondsToSelector:msgSel]) {
-            return ((id (*)(id, SEL))objc_msgSend)(model, msgSel);
+    __weak id weakCell = cell;
+    AWEIMCustomMenuModel *menuItem = [%c(AWEIMCustomMenuModel) new];
+    menuItem.title = @"撤回消息";
+    menuItem.imageName = @"im_chat_recall";
+    menuItem.trackerName = @"撤回消息";
+    menuItem.willPerformMenuActionSelectorBlock = ^(id arg1) {
+        id strongCell = weakCell;
+        if (!strongCell) {
+            [DYYYUtils showToast:@"无法获取消息"];
+            return;
+        }
+        
+        // 获取消息上下文
+        AWEIMMessageComponentContext *context = (AWEIMMessageComponentContext *)[strongCell valueForKey:@"currentContext"];
+        if (!context) {
+            [DYYYUtils showToast:@"无法获取消息上下文"];
+            return;
+        }
+        
+        id message = [context valueForKey:@"message"];
+        if (!message) {
+            [DYYYUtils showToast:@"无法获取消息对象"];
+            return;
+        }
+        
+        // 获取消息ID
+        NSString *msgId = DYYYIMMsgStringValue(message, @"messageId");
+        if (msgId.length == 0) {
+            msgId = DYYYIMMsgStringValue(message, @"msgId");
+        }
+        
+        // 获取消息发送者ID，判断是否是自己发的消息
+        NSString *senderId = DYYYIMMsgStringValue(message, @"senderId");
+        if (senderId.length == 0) {
+            senderId = DYYYIMMsgStringValue(message, @"fromUid");
+        }
+        if (senderId.length == 0) {
+            senderId = DYYYIMMsgStringValue(message, @"uid");
+        }
+        
+        NSLog(@"[DYYY-IM] 尝试撤回消息 ID: %@, 发送者: %@", msgId, senderId);
+        
+        // 尝试通过消息对象调用撤回方法
+        SEL recallSel = NSSelectorFromString(@"recallMessage");
+        if ([message respondsToSelector:recallSel]) {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
+            [message performSelector:recallSel];
+#pragma clang diagnostic pop
+            [DYYYUtils showToast:@"正在撤回消息..."];
+            return;
+        }
+        
+        // 尝试通过上下文调用撤回
+        SEL contextRecallSel = NSSelectorFromString(@"recallMessage:");
+        if ([context respondsToSelector:contextRecallSel]) {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
+            [context performSelector:contextRecallSel withObject:message];
+#pragma clang diagnostic pop
+            [DYYYUtils showToast:@"正在撤回消息..."];
+            return;
+        }
+        
+        // 尝试通过通知触发撤回
+        if (msgId.length > 0) {
+            [[NSNotificationCenter defaultCenter] postNotificationName:@"DYYYRecallMessage"
+                                                                object:nil
+                                                              userInfo:@{@"messageId": msgId}];
+            [DYYYUtils showToast:@"已发送撤回请求"];
+            NSLog(@"[DYYY-IM] 通过通知发送撤回请求: %@", msgId);
+        } else {
+            [DYYYUtils showToast:@"无法撤回此消息"];
+            NSLog(@"[DYYY-IM] 无法获取消息ID，撤回失败");
+        }
+    };
+    return menuItem;
+}
+
+// ============================================================
+// 菜单项注入函数（核心）
+// ============================================================
+static NSArray *DYYYIMInjectMenuItems(NSArray *menuItems, id cell) {
+    if (!menuItems || !cell) return menuItems;
+    
+    // 检查是否是 IM 聊天 Cell
+    if (![cell isKindOfClass:%c(AWEIMReusableCommonCell)]) return menuItems;
+    
+    AWEIMMessageComponentContext *context = (AWEIMMessageComponentContext *)[cell valueForKey:@"currentContext"];
+    if (!context || ![context valueForKey:@"message"]) return menuItems;
+    
+    NSMutableArray *newMenuItems = [menuItems mutableCopy];
+    BOOL enableSwipeActions = DYYYGetBool(@"DYYYEnableSwipeActions");
+    
+    // 注入引用消息选项
+    if (enableSwipeActions) {
+        BOOL hasQuote = NO;
+        for (AWEIMCustomMenuModel *item in menuItems) {
+            if ([item isKindOfClass:%c(AWEIMCustomMenuModel)] && [item.title isEqualToString:@"引用消息"]) {
+                hasQuote = YES;
+                break;
+            }
+        }
+        if (!hasQuote) {
+            AWEIMCustomMenuModel *quoteItem = DYYYIMCreateQuoteMenuItem(cell);
+            if (quoteItem) {
+                [newMenuItems addObject:quoteItem];
+                NSLog(@"[DYYY-IM] 已注入引用消息菜单项");
+            }
         }
     }
     
-    return nil;
-}
-
-// ============================================================
-// 功能1: 聊天消息左滑引用 / 右滑撤回
-// ============================================================
-%group DYYYIMSwipeActionsGroup
-
-// Hook UITableView 来添加滑动手势
-%hook UITableView
-
-- (void)layoutSubviews {
-    %orig;
-    
-    // 检查功能开关
-    if (!DYYYGetBool(@"DYYYEnableSwipeActions")) return;
-    
-    // 检查是否在 IM 聊天页面
-    UIViewController *vc = DYYYFindIMChatViewController(self);
-    if (!vc) return;
-    
-    // 避免重复添加手势
-    if (objc_getAssociatedObject(self, &kDYYYSwipeGestureKey)) return;
-    objc_setAssociatedObject(self, &kDYYYSwipeGestureKey, @YES, OBJC_ASSOCIATION_RETAIN);
-    
-    // 添加滑动手势识别器
-    UISwipeGestureRecognizer *leftSwipe = [[UISwipeGestureRecognizer alloc]
-                                           initWithTarget:self
-                                           action:@selector(dyyy_handleLeftSwipe:)];
-    leftSwipe.direction = UISwipeGestureRecognizerDirectionLeft;
-    [self addGestureRecognizer:leftSwipe];
-    
-    UISwipeGestureRecognizer *rightSwipe = [[UISwipeGestureRecognizer alloc]
-                                            initWithTarget:self
-                                            action:@selector(dyyy_handleRightSwipe:)];
-    rightSwipe.direction = UISwipeGestureRecognizerDirectionRight;
-    [self addGestureRecognizer:rightSwipe];
-}
-
-%new
-- (void)dyyy_handleLeftSwipe:(UISwipeGestureRecognizer *)gesture {
-    if (!DYYYGetBool(@"DYYYEnableSwipeActions")) return;
-    
-    NSString *leftAction = DYYYGetString(@"DYYYSwipeLeftAction");
-    if (![leftAction isEqualToString:@"quote"]) return;
-    
-    // 获取滑动位置的 Cell
-    CGPoint location = [gesture locationInView:self];
-    NSIndexPath *indexPath = [self indexPathForRowAtPoint:location];
-    if (!indexPath) return;
-    
-    UITableViewCell *cell = [self cellForRowAtIndexPath:indexPath];
-    if (!cell) return;
-    
-    id message = DYYYGetMessageFromCell(cell);
-    if (!message) {
-        [DYYYToast showSuccessToastWithMessage:@"无法获取消息"];
-        return;
+    // 注入撤回消息选项
+    if (enableSwipeActions) {
+        BOOL hasRecall = NO;
+        for (AWEIMCustomMenuModel *item in menuItems) {
+            if ([item isKindOfClass:%c(AWEIMCustomMenuModel)] && [item.title isEqualToString:@"撤回消息"]) {
+                hasRecall = YES;
+                break;
+            }
+        }
+        if (!hasRecall) {
+            AWEIMCustomMenuModel *recallItem = DYYYIMCreateRecallMenuItem(cell);
+            if (recallItem) {
+                [newMenuItems addObject:recallItem];
+                NSLog(@"[DYYY-IM] 已注入撤回消息菜单项");
+            }
+        }
     }
     
-    // 发送引用通知
-    [[NSNotificationCenter defaultCenter] postNotificationName:@"DYYYQuoteMessage"
-                                                        object:nil
-                                                      userInfo:@{@"message": message,
-                                                                @"cell": cell}];
-    
-    [DYYYToast showSuccessToastWithMessage:@"已引用消息"];
+    return newMenuItems ?: menuItems;
 }
 
-%new
-- (void)dyyy_handleRightSwipe:(UISwipeGestureRecognizer *)gesture {
-    if (!DYYYGetBool(@"DYYYEnableSwipeActions")) return;
-    
-    NSString *rightAction = DYYYGetString(@"DYYYSwipeRightAction");
-    if (![rightAction isEqualToString:@"recall"]) return;
-    
-    // 获取滑动位置的 Cell
-    CGPoint location = [gesture locationInView:self];
-    NSIndexPath *indexPath = [self indexPathForRowAtPoint:location];
-    if (!indexPath) return;
-    
-    UITableViewCell *cell = [self cellForRowAtIndexPath:indexPath];
-    if (!cell) return;
-    
-    id message = DYYYGetMessageFromCell(cell);
-    if (!message) {
-        [DYYYToast showSuccessToastWithMessage:@"无法获取消息"];
-        return;
-    }
-    
-    // 发送撤回通知
-    [[NSNotificationCenter defaultCenter] postNotificationName:@"DYYYRecallMessage"
-                                                        object:nil
-                                                      userInfo:@{@"message": message,
-                                                                @"cell": cell}];
-    
-    [DYYYToast showSuccessToastWithMessage:@"已撤回消息"];
-}
 
+// ============================================================
+// Group 1: 旧版签名
+// ============================================================
+%group DYYYIMEnhanceLegacyGroup
+%hook AWEIMCustomMenuComponent
+- (void)msg_showMenuForBubbleFrameInScreen:(CGRect)bubbleFrame tapLocationInScreen:(CGPoint)tapLocation menuItemList:(NSArray *)menuItems moreEmoticon:(BOOL)moreEmoticon onCell:(id)cell extra:(id)extra {
+    NSArray *updatedMenuItems = DYYYIMInjectMenuItems(menuItems, cell);
+    %orig(bubbleFrame, tapLocation, updatedMenuItems, moreEmoticon, cell, extra);
+}
+%end
 %end
 
-%end // DYYYIMSwipeActionsGroup
+// ============================================================
+// Group 2: TapLocation 签名
+// ============================================================
+%group DYYYIMEnhanceTapLocationGroup
+%hook AWEIMCustomMenuComponent
+- (void)msg_showMenuForBubbleFrameInScreen:(CGRect)bubbleFrame tapLocationInScreen:(CGPoint)tapLocation menuItemList:(NSArray *)menuItems menuPanelOptions:(unsigned long long)menuPanelOptions moreEmoticon:(BOOL)moreEmoticon onCell:(id)cell extra:(id)extra {
+    NSArray *updatedMenuItems = DYYYIMInjectMenuItems(menuItems, cell);
+    %orig(bubbleFrame, tapLocation, updatedMenuItems, menuPanelOptions, moreEmoticon, cell, extra);
+}
+%end
+%end
+
+// ============================================================
+// Group 3: HighLow 签名
+// ============================================================
+%group DYYYIMEnhanceHighLowGroup
+%hook AWEIMCustomMenuComponent
+- (void)msg_showMenuForBubbleFrameInScreen:(CGRect)bubbleFrame highLocationInScreen:(CGPoint)highLocation lowLocationInScreen:(CGPoint)lowLocation tryHighLocationFirst:(BOOL)tryHighLocationFirst menuItemList:(NSArray *)menuItems menuPanelOptions:(unsigned long long)menuPanelOptions onCell:(id)cell extra:(id)extra {
+    NSArray *updatedMenuItems = DYYYIMInjectMenuItems(menuItems, cell);
+    %orig(bubbleFrame, highLocation, lowLocation, tryHighLocationFirst, updatedMenuItems, menuPanelOptions, cell, extra);
+}
+%end
+%end
 
 
 // ============================================================
 // 功能2: 阻止已读回执上传
+// 使用 MSHookMessageEx 在运行时动态 Hook
 // ============================================================
 %group DYYYBlockReadReceiptGroup
 
-// Hook 已读回执上报方法
 %hook AWEIMReadReceiptDataCenter
-
 - (void)reportReadReceipt:(id)receipt {
     if (DYYYGetBool(@"DYYYBlockReadReceipt")) {
-        NSLog(@"[DYYY-IM] Blocked read receipt report");
+        NSLog(@"[DYYY-IM] 已阻止已读回执上报");
         return;
     }
     %orig;
 }
-
 - (void)ackRead:(id)message {
     if (DYYYGetBool(@"DYYYBlockReadReceipt")) {
-        NSLog(@"[DYYY-IM] Blocked read ack");
+        NSLog(@"[DYYY-IM] 已阻止已读确认");
         return;
     }
     %orig;
 }
-
 - (void)sendReadReceipt:(id)receipt {
     if (DYYYGetBool(@"DYYYBlockReadReceipt")) {
-        NSLog(@"[DYYY-IM] Blocked send read receipt");
+        NSLog(@"[DYYY-IM] 已阻止发送已读回执");
         return;
     }
     %orig;
 }
-
 %end
 
-// Hook 会话已读标记
-%hook AWEIMConversation
-
-- (void)markConversationRead {
-    if (DYYYGetBool(@"DYYYBlockReadReceipt")) {
-        NSLog(@"[DYYY-IM] Blocked conversation read mark");
-        return;
-    }
-    %orig;
-}
-
-- (void)markMessagesAsRead:(id)messages {
-    if (DYYYGetBool(@"DYYYBlockReadReceipt")) {
-        NSLog(@"[DYYY-IM] Blocked mark messages as read");
-        return;
-    }
-    %orig;
-}
-
 %end
-
-%end // DYYYBlockReadReceiptGroup
 
 
 // ============================================================
@@ -228,61 +304,72 @@ static id DYYYGetMessageFromCell(id cell) {
 // ============================================================
 %group DYYYBlockVisitorUploadGroup
 
-// Hook 访客控制器
 %hook AWEProfileNavVisitorItemController
-
 - (void)reportVisit {
     if (DYYYGetBool(@"DYYYBlockVisitorUpload")) {
-        NSLog(@"[DYYY-IM] Blocked profile visit report");
+        NSLog(@"[DYYY-IM] 已阻止访客记录上报");
         return;
     }
     %orig;
 }
-
 - (void)didEnterVisitorsPage {
     if (DYYYGetBool(@"DYYYBlockVisitorUpload")) {
-        NSLog(@"[DYYY-IM] Blocked enter visitors page");
+        NSLog(@"[DYYY-IM] 已阻止进入访客页面记录");
         return;
     }
     %orig;
 }
-
 %end
 
-// Hook 访客数据管理器
-%hook AWEIMVisitorDataCenter
-
-- (void)uploadVisitorRecord:(id)record {
-    if (DYYYGetBool(@"DYYYBlockVisitorUpload")) {
-        NSLog(@"[DYYY-IM] Blocked visitor record upload");
-        return;
-    }
-    %orig;
-}
-
-- (void)reportVisitor:(id)visitor {
-    if (DYYYGetBool(@"DYYYBlockVisitorUpload")) {
-        NSLog(@"[DYYY-IM] Blocked visitor report");
-        return;
-    }
-    %orig;
-}
-
 %end
-
-%end // DYYYBlockVisitorUploadGroup
 
 
 // ============================================================
-// 构造函数：无条件初始化所有 group
+// 构造函数
 // ============================================================
 %ctor {
-    NSLog(@"[DYYY-IM] 正在初始化 IM 增强模块...");
+    NSLog(@"[DYYY-IM] 正在初始化 IM 增强模块 v5...");
     
-    // 无条件初始化所有 group - 这是修复的关键！
-    %init(DYYYIMSwipeActionsGroup);
-    %init(DYYYBlockReadReceiptGroup);
-    %init(DYYYBlockVisitorUploadGroup);
+    // 动态查找 AWEIMCustomMenuComponent 并初始化对应 group
+    Class imMenuComponentClass = objc_getClass("AWEIMCustomMenuComponent");
+    if (imMenuComponentClass) {
+        SEL legacySelector = NSSelectorFromString(@"msg_showMenuForBubbleFrameInScreen:tapLocationInScreen:menuItemList:moreEmoticon:onCell:extra:");
+        SEL tapLocationSelector = NSSelectorFromString(@"msg_showMenuForBubbleFrameInScreen:tapLocationInScreen:menuItemList:menuPanelOptions:moreEmoticon:onCell:extra:");
+        SEL highLowSelector = NSSelectorFromString(@"msg_showMenuForBubbleFrameInScreen:highLocationInScreen:lowLocationInScreen:tryHighLocationFirst:menuItemList:menuPanelOptions:onCell:extra:");
+        
+        if (legacySelector && class_getInstanceMethod(imMenuComponentClass, legacySelector)) {
+            %init(DYYYIMEnhanceLegacyGroup);
+            NSLog(@"[DYYY-IM] 已初始化 Legacy 菜单组");
+        }
+        if (tapLocationSelector && class_getInstanceMethod(imMenuComponentClass, tapLocationSelector)) {
+            %init(DYYYIMEnhanceTapLocationGroup);
+            NSLog(@"[DYYY-IM] 已初始化 TapLocation 菜单组");
+        }
+        if (highLowSelector && class_getInstanceMethod(imMenuComponentClass, highLowSelector)) {
+            %init(DYYYIMEnhanceHighLowGroup);
+            NSLog(@"[DYYY-IM] 已初始化 HighLow 菜单组");
+        }
+    } else {
+        NSLog(@"[DYYY-IM] 未找到 AWEIMCustomMenuComponent 类");
+    }
+    
+    // 动态查找已读回执相关类
+    Class readReceiptClass = objc_getClass("AWEIMReadReceiptDataCenter");
+    if (readReceiptClass) {
+        %init(DYYYBlockReadReceiptGroup);
+        NSLog(@"[DYYY-IM] 已初始化阻止已读回执组");
+    } else {
+        NSLog(@"[DYYY-IM] 未找到 AWEIMReadReceiptDataCenter 类，阻止已读回执功能不可用");
+    }
+    
+    // 动态查找访客记录相关类
+    Class visitorClass = objc_getClass("AWEProfileNavVisitorItemController");
+    if (visitorClass) {
+        %init(DYYYBlockVisitorUploadGroup);
+        NSLog(@"[DYYY-IM] 已初始化阻止访客上传组");
+    } else {
+        NSLog(@"[DYYY-IM] 未找到 AWEProfileNavVisitorItemController 类，阻止访客上传功能不可用");
+    }
     
     NSLog(@"[DYYY-IM] IM 增强模块初始化完成");
 }
