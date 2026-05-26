@@ -2800,7 +2800,6 @@ void showDYYYSettingsVC(UIViewController *rootVC, BOOL hasAgreed) {
               @"cellType" : @37,
               @"imageName" : @"ic_xiaoxihuazhonghua_outlined_20"
           },
-          },
           // 【IM聊天增强】功能组
           @{
               @"identifier" : @"DYYYEnableSwipeActions",
