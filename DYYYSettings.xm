@@ -2800,13 +2800,47 @@ void showDYYYSettingsVC(UIViewController *rootVC, BOOL hasAgreed) {
               @"cellType" : @37,
               @"imageName" : @"ic_xiaoxihuazhonghua_outlined_20"
           },
+          },
+          // 【IM聊天增强】功能组
           @{
-              @"identifier" : @"DYYYDoubleTapMenuSettings",
-              @"title" : @"设置双击菜单项目",
-              @"subTitle" : @"自定义双击打开菜单需要显示的项目",
+              @"identifier" : @"DYYYEnableSwipeActions",
+              @"title" : @"启用聊天滑动手势",
+              @"subTitle" : @"左滑引用消息，右滑撤回消息",
               @"detail" : @"",
-              @"cellType" : @20,
-              @"imageName" : @"ic_squaresplit_outlined_20"
+              @"cellType" : @37,
+              @"imageName" : @"ic_hand_swipe"
+          },
+          @{
+              @"identifier" : @"DYYYSwipeLeftAction",
+              @"title" : @"左滑动作设置",
+              @"subTitle" : @"设置左滑手势执行的操作",
+              @"detail" : @"",
+              @"cellType" : @26,
+              @"imageName" : @"ic_arrow_left"
+          },
+          @{
+              @"identifier" : @"DYYYSwipeRightAction",
+              @"title" : @"右滑动作设置",
+              @"subTitle" : @"设置右滑手势执行的操作",
+              @"detail" : @"",
+              @"cellType" : @26,
+              @"imageName" : @"ic_arrow_right"
+          },
+          @{
+              @"identifier" : @"DYYYBlockReadReceipt",
+              @"title" : @"阻止已读回执",
+              @"subTitle" : @"禁止向对方发送消息已读状态",
+              @"detail" : @"",
+              @"cellType" : @37,
+              @"imageName" : @"ic_eye_off"
+          },
+          @{
+              @"identifier" : @"DYYYBlockVisitorUpload",
+              @"title" : @"阻止访客记录上传",
+              @"subTitle" : @"禁止记录和上传主页访客信息",
+              @"detail" : @"",
+              @"cellType" : @37,
+              @"imageName" : @"ic_user_secret"
           }
       ];
 
@@ -2876,6 +2910,68 @@ void showDYYYSettingsVC(UIViewController *rootVC, BOOL hasAgreed) {
                 AWESettingBaseViewController *subVC = [DYYYSettingsHelper createSubSettingsViewController:@"设置双击菜单项目" sections:sections];
                 [rootVC.navigationController pushViewController:(UIViewController *)subVC animated:YES];
               };
+          }
+
+          // IM聊天增强 - 左滑动作设置
+          if ([item.identifier isEqualToString:@"DYYYSwipeLeftAction"]) {
+              __weak AWESettingItemModel *weakItem = item;
+              item.cellTappedBlock = ^{
+                __strong AWESettingItemModel *strongItem = weakItem;
+                if (!strongItem) return;
+                
+                // 获取当前设置
+                NSString *currentAction = [[NSUserDefaults standardUserDefaults] objectForKey:@"DYYYSwipeLeftAction"];
+                if (!currentAction) currentAction = @"quote";
+                
+                // 显示选项对话框
+                [DYYYSettingsHelper showOptionsSelectionAlert:@"选择左滑动作"
+                    options:@[@{@"title": @"引用消息", @"value": @"quote"},
+                              @{@"title": @"无操作", @"value": @"none"}]
+                    currentValue:currentAction
+                    onSelect:^(NSString *selectedValue) {
+                        [[NSUserDefaults standardUserDefaults] setObject:selectedValue forKey:@"DYYYSwipeLeftAction"];
+                        strongItem.detail = [selectedValue isEqualToString:@"quote"] ? @"引用消息" : @"无操作";
+                        [strongItem refreshCell];
+                    }];
+              };
+              // 初始化显示
+              NSString *currentAction = [[NSUserDefaults standardUserDefaults] objectForKey:@"DYYYSwipeLeftAction"];
+              if (!currentAction) {
+                  [[NSUserDefaults standardUserDefaults] setObject:@"quote" forKey:@"DYYYSwipeLeftAction"];
+                  currentAction = @"quote";
+              }
+              item.detail = [currentAction isEqualToString:@"quote"] ? @"引用消息" : @"无操作";
+          }
+
+          // IM聊天增强 - 右滑动作设置
+          if ([item.identifier isEqualToString:@"DYYYSwipeRightAction"]) {
+              __weak AWESettingItemModel *weakItem = item;
+              item.cellTappedBlock = ^{
+                __strong AWESettingItemModel *strongItem = weakItem;
+                if (!strongItem) return;
+                
+                // 获取当前设置
+                NSString *currentAction = [[NSUserDefaults standardUserDefaults] objectForKey:@"DYYYSwipeRightAction"];
+                if (!currentAction) currentAction = @"recall";
+                
+                // 显示选项对话框
+                [DYYYSettingsHelper showOptionsSelectionAlert:@"选择右滑动作"
+                    options:@[@{@"title": @"撤回消息", @"value": @"recall"},
+                              @{@"title": @"无操作", @"value": @"none"}]
+                    currentValue:currentAction
+                    onSelect:^(NSString *selectedValue) {
+                        [[NSUserDefaults standardUserDefaults] setObject:selectedValue forKey:@"DYYYSwipeRightAction"];
+                        strongItem.detail = [selectedValue isEqualToString:@"recall"] ? @"撤回消息" : @"无操作";
+                        [strongItem refreshCell];
+                    }];
+              };
+              // 初始化显示
+              NSString *currentAction = [[NSUserDefaults standardUserDefaults] objectForKey:@"DYYYSwipeRightAction"];
+              if (!currentAction) {
+                  [[NSUserDefaults standardUserDefaults] setObject:@"recall" forKey:@"DYYYSwipeRightAction"];
+                  currentAction = @"recall";
+              }
+              item.detail = [currentAction isEqualToString:@"recall"] ? @"撤回消息" : @"无操作";
           }
 
           if ([item.identifier isEqualToString:@"DYYYLongPressPanelDark"]) {
