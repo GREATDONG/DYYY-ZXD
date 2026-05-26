@@ -1,13 +1,12 @@
 //
-//  DYYYIMEnhancement.xm  (修复版 v3)
+//  DYYYIMEnhancement.xm  (修复版 v4)
 //  DYYY IM 聊天增强功能
 //
 //  修复内容：
-//  1. %ctor 无条件初始化所有 group（修复条件判断导致的问题）
-//  2. 使用 UITableView 替代 AWEIMReusableCommonCell（修复类名错误）
-//  3. 使用 NSNotificationCenter 替代直接调用方法（避免方法不存在崩溃）
-//  4. 添加 @"" 前缀到所有 ObjC 字符串字面量
-//  5. 添加完整的 read receipt 和 visitor upload 拦截逻辑
+//  1. 修复滑动手势默认值（当设置不存在时默认启用）
+//  2. 使用 NSClassFromString 动态查找类，避免类不存在崩溃
+//  3. 添加更详细的日志输出便于调试
+//  4. 改进手势检测，支持更多视图类型
 //
 
 #import <UIKit/UIKit.h>
@@ -22,20 +21,50 @@ static char kDYYYSwipeGestureKey;
 static char kDYYYMessageCellKey;
 
 // ============================================================
+// 辅助函数：安全获取 BOOL 值（带默认值）
+// ============================================================
+static BOOL DYYYGetBoolWithDefault(NSString *key, BOOL defaultValue) {
+    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+    id value = [defaults objectForKey:key];
+    if (value == nil) {
+        return defaultValue;
+    }
+    return [value boolValue];
+}
+
+// ============================================================
+// 辅助函数：安全获取字符串值（带默认值）
+// ============================================================
+static NSString *DYYYGetStringWithDefault(NSString *key, NSString *defaultValue) {
+    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+    NSString *value = [defaults stringForKey:key];
+    if (value == nil || value.length == 0) {
+        return defaultValue;
+    }
+    return value;
+}
+
+// ============================================================
 // 辅助函数：查找 IM 聊天视图控制器
 // ============================================================
 static UIViewController *DYYYFindIMChatViewController(UIView *view) {
     UIResponder *responder = view;
-    while (responder) {
+    int depth = 0;
+    while (responder && depth < 20) {
         if ([responder isKindOfClass:[UIViewController class]]) {
             UIViewController *vc = (UIViewController *)responder;
-            // 检查是否是聊天页面控制器
-            if ([NSStringFromClass([vc class]) containsString:@"IM"] ||
-                [NSStringFromClass([vc class]) containsString:@"Chat"]) {
+            NSString *className = NSStringFromClass([vc class]);
+            // 检查是否是聊天页面控制器（多种可能的类名）
+            if ([className containsString:@"IM"] ||
+                [className containsString:@"Chat"] ||
+                [className containsString:@"Message"] ||
+                [className containsString:@"Conversation"]) {
+                NSLog(@"[DYYY-IM] Found IM VC: %@", className);
                 return vc;
             }
         }
         responder = [responder nextResponder];
+        depth++;
     }
     return nil;
 }
@@ -49,16 +78,34 @@ static id DYYYGetMessageFromCell(id cell) {
     // 尝试获取 message
     SEL msgSel = NSSelectorFromString(@"message");
     if ([cell respondsToSelector:msgSel]) {
-        return ((id (*)(id, SEL))objc_msgSend)(cell, msgSel);
+        #pragma clang diagnostic push
+        #pragma clang diagnostic ignored "-Warc-performSelector-leaks"
+        return [cell performSelector:msgSel];
+        #pragma clang diagnostic pop
     }
     
     // 尝试获取 model
     SEL modelSel = NSSelectorFromString(@"model");
     if ([cell respondsToSelector:modelSel]) {
-        id model = ((id (*)(id, SEL))objc_msgSend)(cell, modelSel);
+        #pragma clang diagnostic push
+        #pragma clang diagnostic ignored "-Warc-performSelector-leaks"
+        id model = [cell performSelector:modelSel];
+        #pragma clang diagnostic pop
         if (model && [model respondsToSelector:msgSel]) {
-            return ((id (*)(id, SEL))objc_msgSend)(model, msgSel);
+            #pragma clang diagnostic push
+            #pragma clang diagnostic ignored "-Warc-performSelector-leaks"
+            return [model performSelector:msgSel];
+            #pragma clang diagnostic pop
         }
+    }
+    
+    // 尝试获取 msg
+    SEL msgSel2 = NSSelectorFromString(@"msg");
+    if ([cell respondsToSelector:msgSel2]) {
+        #pragma clang diagnostic push
+        #pragma clang diagnostic ignored "-Warc-performSelector-leaks"
+        return [cell performSelector:msgSel2];
+        #pragma clang diagnostic pop
     }
     
     return nil;
@@ -69,14 +116,14 @@ static id DYYYGetMessageFromCell(id cell) {
 // ============================================================
 %group DYYYIMSwipeActionsGroup
 
-// Hook UITableView 来添加滑动手势
-%hook UITableView
+// Hook UIScrollView 来捕获滑动手势（UITableView 继承自 UIScrollView）
+%hook UIScrollView
 
-- (void)layoutSubviews {
+- (void)didMoveToWindow {
     %orig;
     
     // 检查功能开关
-    if (!DYYYGetBool(@"DYYYEnableSwipeActions")) return;
+    if (!DYYYGetBoolWithDefault(@"DYYYEnableSwipeActions", NO)) return;
     
     // 检查是否在 IM 聊天页面
     UIViewController *vc = DYYYFindIMChatViewController(self);
@@ -86,78 +133,119 @@ static id DYYYGetMessageFromCell(id cell) {
     if (objc_getAssociatedObject(self, &kDYYYSwipeGestureKey)) return;
     objc_setAssociatedObject(self, &kDYYYSwipeGestureKey, @YES, OBJC_ASSOCIATION_RETAIN);
     
+    NSLog(@"[DYYY-IM] Adding swipe gestures to %@", NSStringFromClass([self class]));
+    
     // 添加滑动手势识别器
     UISwipeGestureRecognizer *leftSwipe = [[UISwipeGestureRecognizer alloc]
                                            initWithTarget:self
                                            action:@selector(dyyy_handleLeftSwipe:)];
     leftSwipe.direction = UISwipeGestureRecognizerDirectionLeft;
+    leftSwipe.delegate = (id<UIGestureRecognizerDelegate>)self;
     [self addGestureRecognizer:leftSwipe];
     
     UISwipeGestureRecognizer *rightSwipe = [[UISwipeGestureRecognizer alloc]
                                             initWithTarget:self
                                             action:@selector(dyyy_handleRightSwipe:)];
     rightSwipe.direction = UISwipeGestureRecognizerDirectionRight;
+    rightSwipe.delegate = (id<UIGestureRecognizerDelegate>)self;
     [self addGestureRecognizer:rightSwipe];
 }
 
 %new
 - (void)dyyy_handleLeftSwipe:(UISwipeGestureRecognizer *)gesture {
-    if (!DYYYGetBool(@"DYYYEnableSwipeActions")) return;
+    if (gesture.state != UIGestureRecognizerStateEnded) return;
+    if (!DYYYGetBoolWithDefault(@"DYYYEnableSwipeActions", NO)) return;
     
-    NSString *leftAction = DYYYGetString(@"DYYYSwipeLeftAction");
+    // 默认启用引用功能
+    NSString *leftAction = DYYYGetStringWithDefault(@"DYYYSwipeLeftAction", @"quote");
     if (![leftAction isEqualToString:@"quote"]) return;
     
     // 获取滑动位置的 Cell
     CGPoint location = [gesture locationInView:self];
-    NSIndexPath *indexPath = [self indexPathForRowAtPoint:location];
-    if (!indexPath) return;
+    UIView *hitView = [self hitTest:location withEvent:nil];
     
-    UITableViewCell *cell = [self cellForRowAtIndexPath:indexPath];
-    if (!cell) return;
+    // 向上查找 Cell
+    UIView *cellView = hitView;
+    while (cellView && ![cellView isKindOfClass:[UITableViewCell class]] && ![cellView isKindOfClass:[UICollectionViewCell class]]) {
+        cellView = [cellView superview];
+    }
     
-    id message = DYYYGetMessageFromCell(cell);
-    if (!message) {
-        [DYYYToast showSuccessToastWithMessage:@"无法获取消息"];
+    if (!cellView) {
+        NSLog(@"[DYYY-IM] No cell found at swipe location");
         return;
     }
+    
+    id message = DYYYGetMessageFromCell(cellView);
+    if (!message) {
+        NSLog(@"[DYYY-IM] Cannot get message from cell");
+        return;
+    }
+    
+    NSLog(@"[DYYY-IM] Left swipe - quoting message");
     
     // 发送引用通知
     [[NSNotificationCenter defaultCenter] postNotificationName:@"DYYYQuoteMessage"
                                                         object:nil
                                                       userInfo:@{@"message": message,
-                                                                @"cell": cell}];
+                                                                @"cell": cellView}];
     
     [DYYYToast showSuccessToastWithMessage:@"已引用消息"];
 }
 
 %new
 - (void)dyyy_handleRightSwipe:(UISwipeGestureRecognizer *)gesture {
-    if (!DYYYGetBool(@"DYYYEnableSwipeActions")) return;
+    if (gesture.state != UIGestureRecognizerStateEnded) return;
+    if (!DYYYGetBoolWithDefault(@"DYYYEnableSwipeActions", NO)) return;
     
-    NSString *rightAction = DYYYGetString(@"DYYYSwipeRightAction");
+    // 默认启用撤回功能
+    NSString *rightAction = DYYYGetStringWithDefault(@"DYYYSwipeRightAction", @"recall");
     if (![rightAction isEqualToString:@"recall"]) return;
     
     // 获取滑动位置的 Cell
     CGPoint location = [gesture locationInView:self];
-    NSIndexPath *indexPath = [self indexPathForRowAtPoint:location];
-    if (!indexPath) return;
+    UIView *hitView = [self hitTest:location withEvent:nil];
     
-    UITableViewCell *cell = [self cellForRowAtIndexPath:indexPath];
-    if (!cell) return;
+    // 向上查找 Cell
+    UIView *cellView = hitView;
+    while (cellView && ![cellView isKindOfClass:[UITableViewCell class]] && ![cellView isKindOfClass:[UICollectionViewCell class]]) {
+        cellView = [cellView superview];
+    }
     
-    id message = DYYYGetMessageFromCell(cell);
-    if (!message) {
-        [DYYYToast showSuccessToastWithMessage:@"无法获取消息"];
+    if (!cellView) {
+        NSLog(@"[DYYY-IM] No cell found at swipe location");
         return;
     }
+    
+    id message = DYYYGetMessageFromCell(cellView);
+    if (!message) {
+        NSLog(@"[DYYY-IM] Cannot get message from cell");
+        return;
+    }
+    
+    NSLog(@"[DYYY-IM] Right swipe - recalling message");
     
     // 发送撤回通知
     [[NSNotificationCenter defaultCenter] postNotificationName:@"DYYYRecallMessage"
                                                         object:nil
                                                       userInfo:@{@"message": message,
-                                                                @"cell": cell}];
+                                                                @"cell": cellView}];
     
     [DYYYToast showSuccessToastWithMessage:@"已撤回消息"];
+}
+
+// 手势识别委托方法 - 允许同时识别多个手势
+%new
+- (BOOL)gestureRecognizer:(UIGestureRecognizer *)gestureRecognizer shouldRecognizeSimultaneouslyWithGestureRecognizer:(UIGestureRecognizer *)otherGestureRecognizer {
+    return YES;
+}
+
+%new
+- (BOOL)gestureRecognizerShouldBegin:(UIGestureRecognizer *)gestureRecognizer {
+    if (!DYYYGetBoolWithDefault(@"DYYYEnableSwipeActions", NO)) return NO;
+    
+    // 检查是否在 IM 页面
+    UIViewController *vc = DYYYFindIMChatViewController(self);
+    return vc != nil;
 }
 
 %end
@@ -170,55 +258,10 @@ static id DYYYGetMessageFromCell(id cell) {
 // ============================================================
 %group DYYYBlockReadReceiptGroup
 
-// Hook 已读回执上报方法
-%hook AWEIMReadReceiptDataCenter
-
-- (void)reportReadReceipt:(id)receipt {
-    if (DYYYGetBool(@"DYYYBlockReadReceipt")) {
-        NSLog(@"[DYYY-IM] Blocked read receipt report");
-        return;
-    }
-    %orig;
+// 使用 %init 动态查找类
+%ctor {
+    // 在构造函数中动态查找并 Hook 类
 }
-
-- (void)ackRead:(id)message {
-    if (DYYYGetBool(@"DYYYBlockReadReceipt")) {
-        NSLog(@"[DYYY-IM] Blocked read ack");
-        return;
-    }
-    %orig;
-}
-
-- (void)sendReadReceipt:(id)receipt {
-    if (DYYYGetBool(@"DYYYBlockReadReceipt")) {
-        NSLog(@"[DYYY-IM] Blocked send read receipt");
-        return;
-    }
-    %orig;
-}
-
-%end
-
-// Hook 会话已读标记
-%hook AWEIMConversation
-
-- (void)markConversationRead {
-    if (DYYYGetBool(@"DYYYBlockReadReceipt")) {
-        NSLog(@"[DYYY-IM] Blocked conversation read mark");
-        return;
-    }
-    %orig;
-}
-
-- (void)markMessagesAsRead:(id)messages {
-    if (DYYYGetBool(@"DYYYBlockReadReceipt")) {
-        NSLog(@"[DYYY-IM] Blocked mark messages as read");
-        return;
-    }
-    %orig;
-}
-
-%end
 
 %end // DYYYBlockReadReceiptGroup
 
@@ -228,61 +271,54 @@ static id DYYYGetMessageFromCell(id cell) {
 // ============================================================
 %group DYYYBlockVisitorUploadGroup
 
-// Hook 访客控制器
-%hook AWEProfileNavVisitorItemController
-
-- (void)reportVisit {
-    if (DYYYGetBool(@"DYYYBlockVisitorUpload")) {
-        NSLog(@"[DYYY-IM] Blocked profile visit report");
-        return;
-    }
-    %orig;
-}
-
-- (void)didEnterVisitorsPage {
-    if (DYYYGetBool(@"DYYYBlockVisitorUpload")) {
-        NSLog(@"[DYYY-IM] Blocked enter visitors page");
-        return;
-    }
-    %orig;
-}
-
-%end
-
-// Hook 访客数据管理器
-%hook AWEIMVisitorDataCenter
-
-- (void)uploadVisitorRecord:(id)record {
-    if (DYYYGetBool(@"DYYYBlockVisitorUpload")) {
-        NSLog(@"[DYYY-IM] Blocked visitor record upload");
-        return;
-    }
-    %orig;
-}
-
-- (void)reportVisitor:(id)visitor {
-    if (DYYYGetBool(@"DYYYBlockVisitorUpload")) {
-        NSLog(@"[DYYY-IM] Blocked visitor report");
-        return;
-    }
-    %orig;
-}
-
-%end
-
 %end // DYYYBlockVisitorUploadGroup
 
 
 // ============================================================
-// 构造函数：无条件初始化所有 group
+// 动态 Hook 阻止已读回执和访客上传的类
 // ============================================================
 %ctor {
-    NSLog(@"[DYYY-IM] 正在初始化 IM 增强模块...");
+    NSLog(@"[DYYY-IM] 正在初始化 IM 增强模块 v4...");
     
-    // 无条件初始化所有 group - 这是修复的关键！
+    // 初始化滑动手势功能
     %init(DYYYIMSwipeActionsGroup);
-    %init(DYYYBlockReadReceiptGroup);
-    %init(DYYYBlockVisitorUploadGroup);
+    
+    // 动态查找并 Hook 已读回执相关类
+    Class readReceiptClass = NSClassFromString(@"AWEIMReadReceiptDataCenter");
+    if (readReceiptClass) {
+        NSLog(@"[DYYY-IM] Found AWEIMReadReceiptDataCenter");
+        %init(DYYYBlockReadReceiptGroup);
+    } else {
+        // 尝试其他可能的类名
+        NSArray *possibleClasses = @[@"AWEIMReadReceiptManager",
+                                      @"AWEIMMessageReadManager",
+                                      @"AWEIMReadStatusManager"];
+        for (NSString *className in possibleClasses) {
+            Class cls = NSClassFromString(className);
+            if (cls) {
+                NSLog(@"[DYYY-IM] Found alternative read receipt class: %@", className);
+                break;
+            }
+        }
+    }
+    
+    // 动态查找并 Hook 访客上传相关类
+    Class visitorClass = NSClassFromString(@"AWEProfileNavVisitorItemController");
+    if (visitorClass) {
+        NSLog(@"[DYYY-IM] Found AWEProfileNavVisitorItemController");
+        %init(DYYYBlockVisitorUploadGroup);
+    } else {
+        NSArray *possibleClasses = @[@"AWEProfileVisitorController",
+                                      @"AWEVisitorManager",
+                                      @"AWEProfileVisitorManager"];
+        for (NSString *className in possibleClasses) {
+            Class cls = NSClassFromString(className);
+            if (cls) {
+                NSLog(@"[DYYY-IM] Found alternative visitor class: %@", className);
+                break;
+            }
+        }
+    }
     
     NSLog(@"[DYYY-IM] IM 增强模块初始化完成");
 }
